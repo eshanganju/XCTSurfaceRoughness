@@ -3,6 +3,8 @@
 
 import numpy as np
 import tifffile as tiffy
+from circle_fit import hyperLSQ
+
 VERBOSE = True
 
 def ComputeSurfaceRoughness(zyxSurfaceLoc):
@@ -31,10 +33,36 @@ def CorrectCylindricalSurfaceProfile(zyxSurfaceLocs):
 	Option3: https://github.com/xingjiepan/cylinder_fitting
 	"""
 	print('\nCorrecting profile for curvature')
+	correctedZYXSurfaceLocs = np.zeros_like(zyxSurfaceLocs)
+	
 	##### Code goes here #####
+	numSlices = np.max(zyxSurfaceLocs[:,0])
+	indexStart = 0
+	for i in range(0,numSlices+1):
+		print('Checking slice: ' + str(i))
+		
+		# Extract y, x locations
+		indexEnd = np.max(np.where(pointCloud[:,0] == i)) + 1
+		yxLocations = np.zeros((indexEnd, 2))
+		yxLocations = zyxSurfaceLocs[indexStart:indexEnd,1:]
+
+		# Fit circle
+		yc,xc,r,sigma = circle_fit.hyperLSQ(yxLocations)
+
+		# Compute corrected y
+		yCorrection = yc + ( r**2 - (yxLocations[:,1] - xc)**2)**0.5
+
+		# Updated correctedZYXSurfaceLocs
+		correctedZYXSurfaceLocs[indexStart:indexEnd,0] = i
+		correctedZYXSurfaceLocs[indexStart:indexEnd,1] = zyxSurfaceLocs[indexStart:indexEnd,1] - yCorrection
+		correctedZYXSurfaceLocs[indexStart:indexEnd,2] = zyxSurfaceLocs[indexStart:indexEnd,2]
+
+		# Update indexStart
+		indexStart = indexEnd
 
 
 	##### Code goes here #####
+	
 	print('Corrected profile for curvature')
 	return zyxSurfaceLocs
 
