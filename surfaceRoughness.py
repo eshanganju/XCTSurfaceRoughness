@@ -3,9 +3,10 @@
 
 import numpy as np
 import tifffile as tiffy
-from circle_fit import hyperLSQ
+from circle_fit import hyperLSQ, plot_data_circle
 
 VERBOSE = True
+TESTING = False
 
 def ComputeSurfaceRoughness(zyxSurfaceLoc):
 	"""Compute the surface roughness from zyxLocation
@@ -27,44 +28,48 @@ def ComputeSurfaceRoughness(zyxSurfaceLoc):
 
 
 def CorrectCylindricalSurfaceProfile(zyxSurfaceLocs):
-	"""Fit a cylindrical curve to zyxLocations and subtract the curve to get corrected profile zyx
-	Option1: https://stackoverflow.com/questions/43784618/fit-a-cylinder-to-scattered-3d-xyz-point-data
-	Option2: https://github.com/CristianoPizzamiglio/py-cylinder-fitting
-	Option3: https://github.com/xingjiepan/cylinder_fitting
+	"""Correct for curvature of the surface
 	"""
 	print('\nCorrecting profile for curvature')
 	correctedZYXSurfaceLocs = np.zeros_like(zyxSurfaceLocs)
 	
 	##### Code goes here #####
-	numSlices = np.max(zyxSurfaceLocs[:,0])
+	maxSliceIndex = int(np.max( zyxSurfaceLocs[ :, 0 ] ))
 	indexStart = 0
-	for i in range(0,numSlices+1):
+	for i in range( 0, maxSliceIndex + 1 ):
 		print('Checking slice: ' + str(i))
 		
 		# Extract y, x locations
-		indexEnd = np.max(np.where(pointCloud[:,0] == i)) + 1
-		yxLocations = np.zeros((indexEnd, 2))
-		yxLocations = zyxSurfaceLocs[indexStart:indexEnd,1:]
+		nextIndexStart = np.max(np.where(zyxSurfaceLocs[:,0] == i)) + 1
+		yxLocations = np.zeros((nextIndexStart-indexStart, 2))
+		yxLocations = zyxSurfaceLocs[indexStart:nextIndexStart,1:]
+		xyLocations = yxLocations
+		xyLocations[:,[0,1]] = xyLocations[:,[1,0]]
 
 		# Fit circle
-		yc,xc,r,sigma = circle_fit.hyperLSQ(yxLocations)
+		xc,yc,r,sigma = hyperLSQ(xyLocations)
+		if TESTING: print( str(xc) + ' ' + str(yc) + ' ' + str(r) )
+		if TESTING: plot_data_circle(xyLocations, xc, yc, r)
 
 		# Compute corrected y
-		yCorrection = yc + ( r**2 - (yxLocations[:,1] - xc)**2)**0.5
+		if yc > np.average(xyLocations[:,1]): yCorrection = yc - ( r**2 - (xyLocations[:,0] - xc)**2)**0.5
+		else: yCorrection = yc + ( r**2 - (xyLocations[:,0] - xc)**2)**0.5
 
 		# Updated correctedZYXSurfaceLocs
-		correctedZYXSurfaceLocs[indexStart:indexEnd,0] = i
-		correctedZYXSurfaceLocs[indexStart:indexEnd,1] = zyxSurfaceLocs[indexStart:indexEnd,1] - yCorrection
-		correctedZYXSurfaceLocs[indexStart:indexEnd,2] = zyxSurfaceLocs[indexStart:indexEnd,2]
+		correctedZYXSurfaceLocs[indexStart:nextIndexStart,0] = i
+		correctedZYXSurfaceLocs[indexStart:nextIndexStart,1] = xyLocations[:,1] - yCorrection
+		correctedZYXSurfaceLocs[indexStart:nextIndexStart,2] = xyLocations[:,0]
 
 		# Update indexStart
-		indexStart = indexEnd
+		indexStart = nextIndexStart
+		print('\tDone')
 
 
 	##### Code goes here #####
-	
+	np.savetxt('CorrectedSurfaceLocation.csv',correctedZYXSurfaceLocs, delimiter=',')
 	print('Corrected profile for curvature')
-	return zyxSurfaceLocs
+
+	return correctedZYXSurfaceLocs
 
 
 def GetSurfacePoints(segmentedVolume):
@@ -93,7 +98,7 @@ def GetSurfacePoints(segmentedVolume):
 	return surfaceLocArray
 
 
-data = tiffy.imread('/home/crg/Documents/Datasets/AnkitSurfaceRoughness/0 FT/0FT-Crop-Bin.tif')
+data = tiffy.imread('0FT-Crop-Bin.tif')
 zyxSurfacePoints=GetSurfacePoints(data)
 correctedzyxSurfacePoints=CorrectCylindricalSurfaceProfile(zyxSurfacePoints)
 surfaceRoughness=ComputeSurfaceRoughness(correctedzyxSurfacePoints)
