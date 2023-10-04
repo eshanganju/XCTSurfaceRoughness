@@ -16,13 +16,14 @@ def ComputeSurfaceRoughness(zyxSurfaceLoc,fileName='',ofl=''):
 	print('\nComputing Surface Roughness')
 	heightArray = zyxSurfaceLoc[:,1]
 	averageHeight = np.average(heightArray)
-	correctedHeightArray = abs(heightArray - averageHeight)
-	correctedAverageHeight = np.average(correctedHeightArray)
-	f = open("SurfaceRoughness.txt", "w")
-	f.write(str(correctedAverageHeight))
+	standardDeviation = np.std(heightArray)
+
+	fileOutputName = ofl + fileName + '-SurfaceRoughnessValue.csv'
+	f = open(fileOutputName,"w")
+	f.write(str(averageHeight) + ',' + str(standardDeviation))
 	f.close()
 	print('Computed Surface Roughness')
-	return correctedAverageHeight
+	return averageHeight, standardDeviation
 
 
 def CorrectCylindricalSurfaceProfile(zyxSurfaceLocs,fileName='',ofl=''):
@@ -34,6 +35,9 @@ def CorrectCylindricalSurfaceProfile(zyxSurfaceLocs,fileName='',ofl=''):
 
 	maxSliceIndex = int(np.max( zyxSurfaceLocs[ :, 0 ] ))
 	indexStart = 0
+
+	locAndR =np.zeros((maxSliceIndex+1,5)).astype('float')
+
 	for i in range( 0, maxSliceIndex + 1 ):
 		print('Checking slice: ' + str(i))
 
@@ -41,28 +45,41 @@ def CorrectCylindricalSurfaceProfile(zyxSurfaceLocs,fileName='',ofl=''):
 		nextIndexStart = np.max(np.where(zyxSurfaceLocs[:,0] == i)) + 1
 		yxLocations = np.zeros((nextIndexStart-indexStart, 2))
 		yxLocations = zyxSurfaceLocs[indexStart:nextIndexStart,1:]
-		xyLocations = yxLocations
-		xyLocations[:,[0,1]] = xyLocations[:,[1,0]]
+		# xyLocations = yxLocations
+		# xyLocations[:,[0,1]] = xyLocations[:,[1,0]]
 
 		# Fit circle
-		xc,yc,r,sigma = hyper_fit(xyLocations)
+		yc,xc,r,sigma = hyperLSQ(yxLocations)
+		locAndR[i,0] = i
+		locAndR[i,1] = yc
+		locAndR[i,2] = xc
+		locAndR[i,3] = r
+		locAndR[i,4] = sigma
+
 		if TESTING: print( str(xc) + ' ' + str(yc) + ' ' + str(r) )
 		if TESTING: plot_data_circle(xyLocations, xc, yc, r)
-
-		# Compute corrected y
-		if yc > np.average(xyLocations[:,1]): yCorrection = yc - ( r**2 - (xyLocations[:,0] - xc)**2)**0.5
-		else: yCorrection = yc + ( r**2 - (xyLocations[:,0] - xc)**2)**0.5
-
-		# Updated correctedZYXSurfaceLocs
-		correctedZYXSurfaceLocs[indexStart:nextIndexStart,0] = i
-		correctedZYXSurfaceLocs[indexStart:nextIndexStart,1] = xyLocations[:,1] - yCorrection
-		correctedZYXSurfaceLocs[indexStart:nextIndexStart,2] = xyLocations[:,0]
 
 		# Update indexStart
 		indexStart = nextIndexStart
 		print('\tDone')
 
-	np.savetxt('CorrectedSurfaceLocation.csv',correctedZYXSurfaceLocs, delimiter=',')
+	averageY = np.average(locAndR[:,1])
+	averageX = np.average(locAndR[:,2])
+	averageR = np.average(locAndR[:,3])
+
+	# print(averageX)
+	# print(averageY)
+	# print(averageR)
+
+	correctedZYXSurfaceLocs[:,0] = zyxSurfaceLocs[:,0]	# Z
+	correctedZYXSurfaceLocs[:,1] = np.absolute((( zyxSurfaceLocs[:,2] - averageX )**2 + (zyxSurfaceLocs[:,1] - averageY)**2 )**0.5 - averageR)						# Y
+	correctedZYXSurfaceLocs[:,2] = zyxSurfaceLocs[:,2]	# X
+
+
+	fileOutputName = ofl + fileName + '-CorrectedSurfaceLocation.csv'
+	fileOutputName2 = ofl + fileName + '-centersAndRadii.csv'
+	np.savetxt(fileOutputName, correctedZYXSurfaceLocs, delimiter=',')
+	np.savetxt(fileOutputName2, locAndR, delimiter=',')
 	print('Corrected profile for curvature')
 
 	return correctedZYXSurfaceLocs
@@ -82,25 +99,29 @@ def GetSurfacePoints(segmentedVolume,fileName='',ofl=''):
 					if VERBOSE: print('\tTop:' + str(z) + ','+ str(y) + ',' + str(x))
 					surf[z,y,x] = 1
 					break
-	tiffy.imwrite('surfaceFromCode.tif',surf)
+	imageOutName = ofl + fileName + '-Surface.tif'
+	tiffy.imwrite(imageOutName,surf)
 
 	surfaceCoordinates = np.nonzero(surf)
 	surfaceLocArray = np.zeros((surfaceCoordinates[0].shape[0],3))
 	surfaceLocArray[:,0] = surfaceCoordinates[0]
 	surfaceLocArray[:,1] = surfaceCoordinates[1]
 	surfaceLocArray[:,2] = surfaceCoordinates[2]
-	np.savetxt('SurfaceLocation.csv',surfaceLocArray, delimiter=',')
+
+	fileOutputName = ofl + fileName + '-SurfaceLocation.csv'
+	np.savetxt(fileOutputName,surfaceLocArray, delimiter=',')
 	print('Obtained surface coordinates')
 	return surfaceLocArray
 
 
-ofl = '/home/crg/Documents/Datasets/AnkitSurfaceRoughness/Code error- case/REV/'
-ifl = '/home/crg/Documents/Datasets/AnkitSurfaceRoughness/Code error- case/REV/'
-numFiles = 4
-for i in range(1,numFiles+1):
-	fileName = str(int(i)) + '.tif'
-	fileLoc = ofl + fileName
-	data = tiffy.imread(fileLoc)
-	zyxSurfacePoints=GetSurfacePoints(data,fileName=,ofl=)
-	correctedzyxSurfacePoints=CorrectCylindricalSurfaceProfile(zyxSurfacePoints,fileName=,ofl=ofl)
-	surfaceRoughness=ComputeSurfaceRoughness(correctedzyxSurfacePoints,fileName=,ofl=ofl)
+ofl = '/home/crg/Documents/Datasets/AnkitSurfaceRoughness/RoughnessData/outputFiles/'
+ifl = '/home/crg/Documents/Datasets/AnkitSurfaceRoughness/RoughnessData/inputFiles/'
+files = ['150FT','450FT','800FT','1100FT','1600FT']
+
+for file in files:
+	data = tiffy.imread( ifl + file + '.tif' )
+	zyxSurfacePoints=GetSurfacePoints(data,fileName=file,ofl=ofl)
+	correctedzyxSurfacePoints=CorrectCylindricalSurfaceProfile(zyxSurfacePoints,fileName=file,ofl=ofl)
+	surfaceRoughness, stdRoughness = ComputeSurfaceRoughness(correctedzyxSurfacePoints,fileName=file,ofl=ofl)
+	print(surfaceRoughness)
+	print(stdRoughness)
